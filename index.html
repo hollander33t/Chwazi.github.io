@@ -44,7 +44,7 @@
 
     <div id="ui-container">
         <div id="title">CHWAZI</div>
-        <div id="status">Plaats vingers</div>
+        <div id="status">Place fingers</div>
     </div>
     <canvas id="canvas"></canvas>
 
@@ -125,7 +125,7 @@
                 winnerId = null; choosing = false;
                 clearTimeout(timer);
                 document.body.style.backgroundColor = "#020205";
-                status.innerText = "Plaats vingers";
+                status.innerText = "Place fingers";
                 title.classList.remove('active-title');
             } else {
                 resetTimer();
@@ -144,7 +144,7 @@
                 timer = setTimeout(pick, 2000);
             } else if (!winnerId) {
                 choosing = false;
-                status.innerText = count === 1 ? "Wachten op meer..." : "Plaats vingers";
+                status.innerText = count === 1 ? "Waiting for more..." : "Place fingers";
                 title.classList.remove('active-title');
             }
         }
