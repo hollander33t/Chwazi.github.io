@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Chwazi HollanderCloud</title>
+    <style>
+        :root {
+            --bg: #020205;
+        }
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: var(--bg);
+            transition: background-color 0.8s cubic-bezier(0.2, 1, 0.3, 1);
+            font-family: -apple-system, system-ui, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        canvas { display: block; }
+        
+        #ui-container {
+            position: absolute; top: 10%; width: 100%; text-align: center;
+            pointer-events: none; z-index: 10;
+        }
+
+        #title {
+            font-size: 32px; font-weight: 900; color: white;
+            letter-spacing: 12px; text-transform: uppercase;
+            margin-bottom: 5px; opacity: 0.15;
+            transition: opacity 0.5s ease;
+        }
+
+        #status {
+            color: rgba(255,255,255,0.3); text-transform: uppercase;
+            letter-spacing: 3px; font-size: 11px;
+            transition: all 0.2s ease;
+        }
+
+        /* Als er gekozen wordt, mag de titel wel iets meer 'shinen' */
+        .active-title { opacity: 0.5 !important; letter-spacing: 16px !important; }
+    </style>
+</head>
+<body>
+
+    <div id="ui-container">
+        <div id="title">CHWAZI</div>
+        <div id="status">Plaats vingers</div>
+    </div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const status = document.getElementById('status');
+        const title = document.getElementById('title');
+
+        let touches = {};
+        let particles = [];
+        let winnerId = null;
+        let choosing = false;
+        let startTime = 0;
+        let timer = null;
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playTone(freq, type, duration, vol) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + duration);
+        }
+
+        const COLORS = [
+            { r: 0, g: 255, b: 200, hex: '#00ffc8' },
+            { r: 255, g: 0, b: 150, hex: '#ff0096' },
+            { r: 0, g: 150, b: 255, hex: '#0096ff' },
+            { r: 255, g: 200, b: 0, hex: '#ffc800' },
+            { r: 180, g: 0, b: 255, hex: '#b400ff' }
+        ];
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (winnerId) return;
+            
+            Array.from(e.changedTouches).forEach(t => {
+                playTone(250 + (Object.keys(touches).length * 40), 'sine', 0.15, 0.08);
+                touches[t.identifier] = {
+                    x: t.clientX, y: t.clientY,
+                    color: COLORS[Object.keys(touches).length % COLORS.length],
+                    r: 0, targetR: 60,
+                    pulse: 0
+                };
+            });
+            resetTimer();
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            Array.from(e.touches).forEach(t => {
+                if (touches[t.identifier]) {
+                    touches[t.identifier].x = t.clientX;
+                    touches[t.identifier].y = t.clientY;
+                }
+            });
+        });
+
+        canvas.addEventListener('touchend', (e) => {
+            const activeIds = Array.from(e.touches).map(t => t.identifier);
+            Object.keys(touches).forEach(id => {
+                if (!activeIds.includes(parseInt(id))) delete touches[id];
+            });
+
+            if (activeIds.length === 0) {
+                winnerId = null; choosing = false;
+                clearTimeout(timer);
+                document.body.style.backgroundColor = "#020205";
+                status.innerText = "Plaats vingers";
+                title.classList.remove('active-title');
+            } else {
+                resetTimer();
+            }
+        });
+
+        function resetTimer() {
+            clearTimeout(timer);
+            const count = Object.keys(touches).length;
+            
+            if (count >= 2 && !winnerId) {
+                choosing = true;
+                startTime = Date.now();
+                status.innerText = ""; // Tekst verwijderd voor clean look
+                title.classList.add('active-title');
+                timer = setTimeout(pick, 2000);
+            } else if (!winnerId) {
+                choosing = false;
+                status.innerText = count === 1 ? "Wachten op meer..." : "Plaats vingers";
+                title.classList.remove('active-title');
+            }
+        }
+
+        function pick() {
+            const ids = Object.keys(touches);
+            if (ids.length < 2) return;
+
+            winnerId = ids[Math.floor(Math.random() * ids.length)];
+            const win = touches[winnerId];
+            
+            document.body.style.backgroundColor = win.color.hex + "22";
+            status.innerText = "WINNAAR";
+            
+            playTone(300, 'square', 0.3, 0.05);
+            playTone(500, 'sine', 0.2, 0.1);
+            if (navigator.vibrate) navigator.vibrate([80, 40, 120]);
+            
+            explode(win.x, win.y, win.color);
+        }
+
+        function explode(x, y, col) {
+            for (let i = 0; i < 60; i++) {
+                particles.push({
+                    x, y,
+                    vx: (Math.random() - 0.5) * 16,
+                    vy: (Math.random() - 0.5) * 16,
+                    life: 1,
+                    col: `rgb(${col.r}, ${col.g}, ${col.b})`
+                });
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx; p.y += p.vy;
+                p.vx *= 0.94; p.vy *= 0.94;
+                p.life -= 0.025;
+                if (p.life <= 0) { particles.splice(i, 1); continue; }
+                ctx.fillStyle = p.col;
+                ctx.globalAlpha = p.life;
+                ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill();
+            }
+
+            Object.keys(touches).forEach(id => {
+                const t = touches[id];
+                const isWinner = winnerId == id;
+                const isLoser = winnerId && !isWinner;
+
+                t.r += (t.targetR - t.r) * 0.18;
+                if (isLoser) t.targetR = 0;
+                if (isWinner) t.targetR = 160;
+
+                ctx.globalAlpha = 1;
+
+                const g = ctx.createRadialGradient(t.x, t.y, 0, t.x, t.y, t.r * 1.5);
+                g.addColorStop(0, `rgba(${t.color.r}, ${t.color.g}, ${t.color.b}, 0.5)`);
+                g.addColorStop(1, 'transparent');
+                ctx.fillStyle = g;
+                ctx.beginPath(); ctx.arc(t.x, t.y, t.r * 2.5, 0, Math.PI * 2); ctx.fill();
+
+                ctx.fillStyle = "white";
+                ctx.beginPath(); ctx.arc(t.x, t.y, t.r * 0.7, 0, Math.PI * 2); ctx.fill();
+
+                if (choosing && !winnerId) {
+                    const prog = (Date.now() - startTime) / 2000;
+                    ctx.strokeStyle = t.color.hex;
+                    ctx.lineWidth = 4;
+                    ctx.beginPath();
+                    ctx.arc(t.x, t.y, t.r + 12, -Math.PI/2, (-Math.PI/2) + (Math.PI * 2 * prog));
+                    ctx.stroke();
+                }
+            });
+
+            requestAnimationFrame(draw);
+        }
+        draw();
+    </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"50c14a43f15f4969bd746be30db90030","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
